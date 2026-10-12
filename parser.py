@@ -3,56 +3,55 @@ from bs4 import BeautifulSoup
 import datetime
 import re
 
-# Используем прямой адрес интерактивной карты, откуда можно забрать ВСЁ и сразу
-URL_MAP = "https://ztoe.com.ua"
+# Строго целевая страница с графиком
+URL = "https://www.ztoe.com.ua/unhooking-search.php"
 
 def parse_ztoe():
-    # Имитируем реальный браузер на мобильном телефоне, чтобы сайт не выдавал пустую инфу
+    # Маскируемся под обычный мобильный браузер
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://ztoe.com.ua",
-        "X-Requested-With": "XMLHttpRequest"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     
     try:
-        # Делаем один точечный запрос методом POST, как это делает сам сайт
-        payload = {"action": "get_map"}
-        response = requests.post(URL_MAP, headers=headers, data=payload, timeout=25)
-        response.encoding = 'windows-1251'
+        response = requests.get(URL, headers=headers, timeout=25)
+        # Принудительно ставим кодировку Житомироблэнерго
+        response.encoding = 'windows-1251' 
         
         if response.status_code != 200:
-            print(f"Сайт временно недоступен. Статус: {response.status_code}")
+            print(f"Сайт облэнерго недоступен: {response.status_code}")
             return
 
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # 1. Извлекаем глобальный текст объявлений (он дублируется вверху карты в h3)
-        alert_text = "Официальный график или важные объявления на сервере отсутствуют."
+        # 1. Парсим и красиво переносим строки из h3 (Объявление Укренерго)
+        alert_text = "Важная информация на сайте отсутствует."
         alert_div = soup.find("h3")
         if alert_div:
             alert_html = str(alert_div)
+            # Меняем теги перевода строк на честные символы \n
             alert_html = alert_html.replace("<br/>", "\n").replace("<br>", "\n")
             alert_text = BeautifulSoup(alert_html, "html.parser").get_text().strip()
-            # Форматируем переносы строк для читаемости
-            alert_text = re.sub(r'(з \d{2}:\d{2})', r'\n\1', alert_text)
+            
+            # Делаем красивый перенос перед каждым временным интервалом
+            alert_text = re.sub(r'(ç \d{2}:\d{2})', r'\n\1', alert_text)
             alert_text = alert_text.replace("Пошук черги та підчерги за адресою", "")
 
-        # 2. Ищем таблицу графиков
+        # 2. Ищем таблицы на странице
         tables = soup.find_all("table")
         if not tables:
-            print("Блокировка или пустой ответ: сайт не отдал таблицу.")
-            return # Прерываем скрипт, чтобы не перезаписывать работающий index.html пустой заглушкой
+            print("Таблица графиков не найдена на unhooking-search.php")
+            return
             
-        target_table = tables[0]
+        target_table = tables[0] # Берем первую таблицу с графиками
         rows = target_table.find_all("tr")
         
         target_col_idx = None
         schedule_list = []
         current_date_str = ""
         
-        # Динамически ищем колонку 3.1
+        # Шаг А: Динамически сканируем шапку и вычисляем номер столбца для "3.1"
         for row in rows:
             cells = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
             if "3.1" in cells:
@@ -60,8 +59,10 @@ def parse_ztoe():
                 break
                 
         if target_col_idx is None:
-            target_col_idx = 8 # Позиция по умолчанию в сетке Житомироблэнерго
+            print("Не удалось найти колонку '3.1' в таблице сайта.")
+            target_col_idx = 8 # Страховочный индекс для стандартной верстки
             
+        # Шаг Б: Собираем расписание только по нашей колонке
         for row in rows:
             cells = row.find_all(["td", "th"])
             cell_texts = [c.get_text(strip=True) for c in cells]
@@ -69,25 +70,28 @@ def parse_ztoe():
             if not cell_texts:
                 continue
                 
-            # Извлекаем дату (например, 13.10.2026)
-            if len(cell_texts) == 1 and ("." in cell_texts or "202" in cell_texts):
-                current_date_str = cell_texts.replace("Графік погодинних відключень", "").strip()
+            # Перехватываем строки с датами (например, "13.10.2026")
+            if len(cell_texts) == 1 and ("." in cell_texts[0] or "202" in cell_texts[0]):
+                current_date_str = cell_texts[0].replace("Графік погодинних відключень", "").strip()
                 continue
                 
-            # Проверяем строки с временными интервалами
+            # Обрабатываем строки с интервалами времени (например, "06:00-06:30")
             if len(cell_texts) > target_col_idx and "-" in cell_texts[0]:
                 time_range = cell_texts[0]
                 status_cell = cells[target_col_idx]
                 
-                cell_class = "".join(status_cell.get("class", []))
+                # Достаем весь чистый текст и внутренности ячейки
+                raw_cell_text = status_cell.get_text(strip=True)
                 cell_style = status_cell.get("style", "").lower()
-                cell_text = status_cell.get_text(strip=True)
+                cell_class = "".join(status_cell.get("class", []))
                 
-                # Распознаем статус отключения по цветам или меткам Облэнерго
-                if "red" in cell_style or "red" in cell_class or "cc0000" in cell_style or cell_text in ["I", "І"]:
+                # Жёсткий маркер отключения: если в ячейке стоит любая буква "I"/"І" или есть красный фон
+                if any(x in raw_cell_text for x in ["I", "І", "1"]) or "red" in cell_style or "cc0000" in cell_style or "red" in cell_class:
                     status = "<span style='color: #d93025; font-weight: bold;'>🔴 Отключение</span>"
-                elif "yellow" in cell_style or "yellow" in cell_class or "maybe" in cell_class or cell_text in ["II", "ІІ"]:
+                # Проверяем "серую" зону возможных отключений
+                elif any(x in raw_cell_text for x in ["II", "ІІ", "2"]) or "yellow" in cell_style or "maybe" in cell_class:
                     status = "<span style='color: #b06000; font-weight: bold;'>🟡 Возможная серая зона</span>"
+                # Если ячейка пустая или белая — свет есть
                 else:
                     status = "<span style='color: #1e7e34;'>⚪ Есть свет</span>"
                     
@@ -95,12 +99,12 @@ def parse_ztoe():
                 schedule_list.append(f"<li><span>{date_prefix}<b>{time_range}</b></span> <span>{status}</span></li>")
 
         if not schedule_list:
-            print("Расписание не удалось распарсить.")
+            print("Не удалось распарсить ни одной строки расписания.")
             return
 
         schedule_html = "".join(schedule_list)
 
-        # 3. Генерируем финальную страницу
+        # 3. Генерируем красивую легкую веб-страницу
         now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         html_output = f"""
         <!DOCTYPE html>
@@ -138,10 +142,10 @@ def parse_ztoe():
         
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html_output)
-        print("index.html успешно обновлен с новыми маскировками запросов!")
+        print("Готово! index.html успешно перезаписан на основе unhooking-search.php")
 
     except Exception as e:
-        print(f"Ошибка парсинга: {e}")
+        print(f"Критическая ошибка парсинга: {e}")
 
 if __name__ == "__main__":
     parse_ztoe()
