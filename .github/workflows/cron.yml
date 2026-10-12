@@ -13,12 +13,12 @@ jobs:
 
     steps:
     - name: Проверка репозитория
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4.2.2 # Обновлено до последней минорной версии v4
       with:
         fetch-depth: 0 # Скачивает всю историю, чтобы избежать конфликтов дерева Git
 
     - name: Настройка Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v5.3.0 # Обновлено до v5.3.0 с поддержкой Node 24
       with:
         python-version: '3.11'
 
@@ -30,7 +30,7 @@ jobs:
       run: python parser.py
 
     - name: Сохранение изменений через авто-коммит
-      uses: stefanzweifel/git-auto-commit-action@v5
+      uses: stefanzweifel/git-auto-commit-action@v5.1.0 # Обновлено до v5.1.0+
       with:
         commit_message: "Авто-обновление данных Житомироблэнерго (Очередь 3.1)"
         file_pattern: 'index.html' # Робот будет следить и пушить ТОЛЬКО этот файл
