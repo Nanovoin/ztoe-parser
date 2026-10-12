@@ -2,36 +2,40 @@ name: Hourly ZTOE Parser
 
 on:
   schedule:
-    - cron: '1,31 * * * *' # Запуск дважды в час: в 01 и 31 минуту
-  workflow_dispatch: # Кнопка ручного запуска
+    - cron: '1,31 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ztoe-parser
+  cancel-in-progress: true
 
 jobs:
-  build:
+  parse:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
-      contents: write # Дает право роботу делать коммиты
+      contents: write
 
     steps:
-    - name: Проверка репозитория
-      uses: actions/checkout@v4.2.2 # Обновлено до последней минорной версии v4
-      with:
-        fetch-depth: 0 # Скачивает всю историю, чтобы избежать конфликтов дерева Git
+      - name: Проверка репозитория
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
 
-    - name: Настройка Python
-      uses: actions/setup-python@v5.3.0 # Обновлено до v5.3.0 с поддержкой Node 24
-      with:
-        python-version: '3.11'
+      - name: Настройка Python
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: Установка библиотек
-      run: |
-        pip install requests beautifulsoup4
+      - name: Установка библиотек
+        run: pip install -r requirements.txt
 
-    - name: Запуск парсера
-      run: python parser.py
+      - name: Запуск парсера
+        run: python parser.py
 
-    - name: Сохранение изменений через авто-коммит
-      uses: stefanzweifel/git-auto-commit-action@v5.1.0 # Обновлено до v5.1.0+
-      with:
-        commit_message: "Авто-обновление данных Житомироблэнерго (Очередь 3.1)"
-        file_pattern: 'index.html' # Робот будет следить и пушить ТОЛЬКО этот файл
-        push_options: '--force' # Принудительно затрет старый index.html свежей версией
+      - name: Сохранение изменений через авто-коммит
+        uses: stefanzweifel/git-auto-commit-action@v5.1.0
+        with:
+          commit_message: "Авто-обновление данных Житомироблэнерго (Очередь 3.1)"
+          file_pattern: 'index.html'
