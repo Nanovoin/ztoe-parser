@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import datetime
 import re
-
+from zoneinfo import ZoneInfo  # Автоматически считает переводы часов для Киева
 # Ваша рабочая ссылка — её больше не трогаем
 URL = "https://www.ztoe.com.ua/unhooking-search.php"
 
@@ -60,7 +60,9 @@ def parse_ztoe():
         # =========================================================================
 
         # 3. Собираем страницу вывода
-        now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        # GitHub сам поймет географическое время Киева со всеми зимними/летними переходами
+        now = datetime.datetime.now(ZoneInfo("Europe/Kiev")).strftime("%d.%m.%Y %H:%M:%S")
+
         html_output = f"""
         <!DOCTYPE html>
         <html lang="uk">
@@ -83,7 +85,7 @@ def parse_ztoe():
         <body>
             <div class="card">
                 <h1>График для Очереди 3.1</h1>
-                <div class="update-time">Синхронизировано: {now} (каждый час)</div>
+                <div class="update-time">Синхронизировано: {now} (каждый час)по киеву</div>
                 
                 <div class="alert-box"><strong>Официально от Укренерго:</strong><br>{alert_text}</div>
                 
