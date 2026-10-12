@@ -21,97 +21,45 @@ def parse_ztoe():
             print(f"Сайт облэнерго недоступен: {response.status_code}")
             return
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        # 1. Извлекаем и чистим объявление Укренерго
+        raw_html = response.text
+
+        # 1. Извлекаем и чистим объявление Укренерго (из блока h3)
+        soup = BeautifulSoup(raw_html, "html.parser")
         alert_text = "Важная информация на сайте отсутствует."
         alert_div = soup.find("h3")
         if alert_div:
             alert_html = str(alert_div).replace("<br/>", "\n").replace("<br>", "\n")
             raw_text = BeautifulSoup(alert_html, "html.parser").get_text()
-            
-            clean_lines = []
-            for line in raw_text.split("\n"):
-                stripped = line.strip()
-                if stripped and "Пошук черги" not in stripped and "</div>" not in stripped:
-                    clean_lines.append(stripped)
-            
+            clean_lines = [line.strip() for line in raw_text.split("\n") if line.strip() and "Пошук черги" not in line and "</div>" not in line]
             alert_text = "\n".join(clean_lines)
-            if len(clean_lines) <= 2:
-                alert_text = re.sub(r'(з \d{2}:\d{2})', r'\n\1', alert_text)
 
-        # 2. Ищем таблицу графиков
-        tables = soup.find_all("table")
-        if not tables:
-            print("Таблица графиков не найдена.")
-            return
-            
-        target_table = tables[0]
-        rows = target_table.find_all("tr")
-        
-        # Шаг А: ПЕРВЫЙ ПРОГОН — Ищем, в каком по счету столбце лежит "3.1"
-        target_col_idx = None
-        for row in rows:
-            cells = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
-            if "3.1" in cells:
-                target_col_idx = cells.index("3.1")
-                print(f"Колонка 3.1 успешно найдена! Индекс столбца: {target_col_idx}")
-                break
-                
-        if target_col_idx is None:
-            # Страховочный индекс (9-й столбец в полной сетке Житомироблэнерго)
-            target_col_idx = 8 
-            print(f"Очередь 3.1 не найдена в разметке. Используем страховочный индекс: {target_col_idx}")
-            
-        schedule_list = []
-        current_date_str = ""
-        
-        # Шаг Б: ВТОРОЙ ПРОГОН — Собираем только нужные строки времени
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            cell_texts = [c.get_text(strip=True) for c in cells]
-            
-            if not cell_texts or len(cell_texts) == 0:
-                continue
-                
-            first_cell = cell_texts[0]
-            
-            # Перехватываем смену даты (например, "12.10.2026", "13.10.2026")
-            if len(cell_texts) == 1 and ("." in first_cell or "202" in first_cell):
-                if "роз'яснення" not in first_cell.lower() and "колір" not in first_cell.lower():
-                    current_date_str = first_cell.replace("Графік погодинних відключень", "").strip()
-                continue
-                
-            # Строго отсекаем всё, что не является временным интервалом (должны быть символы ":" и "-")
-            if ":" in first_cell and "-" in first_cell:
-                time_range = first_cell
-                
-                # Защита от выхода за границы строки, если строка деформирована
-                if len(cells) > target_col_idx:
-                    status_cell = cells[target_col_idx]
-                    raw_cell_text = status_cell.get_text(strip=True)
-                    cell_style = status_cell.get("style", "").lower()
-                    cell_class = "".join(status_cell.get("class", []))
-                    
-                    # Проверяем маркеры отключения (Символ "I" / "І", красный цвет)
-                    if any(x in raw_cell_text for x in ["I", "І", "1"]) or "red" in cell_style or "cc0000" in cell_style or "red" in cell_class:
-                        status = "<span style='color: #d93025; font-weight: bold;'>🔴 Отключение</span>"
-                    # Проверяем маркеры серой зоны (Символ "II" / "ІІ", желтый цвет)
-                    elif any(x in raw_cell_text for x in ["II", "ІІ", "2"]) or "yellow" in cell_style or "maybe" in cell_class:
-                        status = "<span style='color: #b06000; font-weight: bold;'>🟡 Возможная серая зона</span>"
-                    else:
-                        status = "<span style='color: #1e7e34;'>⚪ Есть свет</span>"
-                        
-                    date_prefix = f"<small style='color:#666;'>{current_date_str}</small> " if current_date_str else ""
-                    schedule_list.append(f"<li><span>{date_prefix}<b>{time_range}</b></span> <span>{status}</span></li>")
-
-        if not schedule_list:
-            print("Ошибка фильтрации: Строки времени не были собраны.")
+        # =========================================================================
+        # ЛОГИКА ВАШЕГО JAVA-ПАРСЕРА (ПЕРЕНОС 1 в 1)
+        # =========================================================================
+        if "Графіки погодинних відключень" not in raw_html:
+            print("Маркер графиков не найден на странице.")
             return
 
-        schedule_html = "".join(schedule_list)
+        # String[] partsGraff = split(inp, "Графіки погодинних відключень");
+        parts_graff = raw_html.split("Графіки погодинних відключень")
+        
+        # String[] mis = split(partsGraff[1], "width:30pt");
+        mis = parts_graff[1].split("width:30pt")
+        
+        schedule_html = ""
 
-        # 3. Генерируем чистую HTML-страницу
+        # Первый день: tableDraw(mis[5], 2); -> индекс 5 соответствует Очереди 3.1
+        if len(mis) > 5:
+            schedule_html += "<h4>График на текущие сутки:</h4>"
+            schedule_html += "<ul>" + table_draw_logic(mis[5]) + "</ul>"
+            
+        # Второй день (если есть в массиве): if (mis.length > 15) { tableDraw(mis[5+12], 5); }
+        if len(mis) > 17: # 5 + 12 = 17 индекс в массиве
+            schedule_html += "<h4 style='margin-top:25px;'>График на следующие сутки:</h4>"
+            schedule_html += "<ul>" + table_draw_logic(mis[17]) + "</ul>"
+        # =========================================================================
+
+        # 3. Собираем страницу вывода
         now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         html_output = f"""
         <!DOCTYPE html>
@@ -124,10 +72,11 @@ def parse_ztoe():
                 body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 15px; background: #f0f2f5; color: #1c1e21; }}
                 .card {{ max-width: 500px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }}
                 h1 {{ font-size: 20px; color: #0056b3; margin-top: 0; text-align: center; }}
+                h4 {{ margin-bottom: 10px; color: #333; border-bottom: 2px solid #ebedf0; padding-bottom: 5px; }}
                 .alert-box {{ background: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; font-size: 13.5px; margin-bottom: 20px; border: 1px solid #ffeeba; line-height: 1.5; white-space: pre-line; }}
                 .update-time {{ font-size: 11px; color: #8d949e; text-align: center; margin-bottom: 15px; }}
                 ul {{ list-style: none; padding: 0; margin: 0; }}
-                li {{ padding: 10px 0; border-bottom: 1px solid #ebedf0; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }}
+                li {{ padding: 8px 0; border-bottom: 1px solid #ebedf0; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }}
                 li:last-child {{ border-bottom: none; }}
             </style>
         </head>
@@ -138,10 +87,7 @@ def parse_ztoe():
                 
                 <div class="alert-box"><strong>Официально от Укренерго:</strong><br>{alert_text}</div>
                 
-                <h3 style="font-size: 16px; color: #333;">Почасовой статус:</h3>
-                <ul>
-                    {schedule_html}
-                </ul>
+                {schedule_html}
             </div>
         </body>
         </html>
@@ -149,10 +95,56 @@ def parse_ztoe():
         
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html_output)
-        print("index.html успешно обновлен!")
+        print("Успех! index.html сгенерирован по алгоритму Java-парсера.")
 
     except Exception as e:
         print(f"Критическая ошибка парсинга: {e}")
+
+def table_draw_logic(inp_chunk):
+    """
+    Аналог вашей функции void tableDraw(String inp).
+    Ищет цвета фонов, определяет интервалы времени и формирует строчки для сайта.
+    """
+    # String[][] misaca = matchAll(inp, "background: #(.*?)\">");
+    misaca = re.findall(r'background:\s*#([a-fA-A0-9]{6})', inp_chunk, re.IGNORECASE)
+    
+    if not misaca:
+        return "<li>Свет есть постоянно (интервалы отключений отсутствуют)</li>"
+        
+    lines = []
+    is_light_old = "ffffff" in misaca[0].lower()
+    
+    # Чтобы вывести первый интервал (например, с 00:00)
+    start_time_str = "00:00"
+    
+    # Проходим по всем 48 полугодиям (24 часа * 2 получаса)
+    for i in range(len(misaca)):
+        color = misaca[i].lower()
+        is_light_current = "ffffff" in color
+        
+        # Если статус изменился или это самый последний получас суток (i == 47)
+        if is_light_current != is_light_old or i == len(misaca) - 1:
+            # Вычисляем текущее время (аналог вашего i/2 и проверок на 30 минут)
+            hour = i // 2
+            minute = "30" if (i % 2 != 0) else "00"
+            
+            # Обработка финальной точки суток
+            if i == len(misaca) - 1:
+                end_time_str = "24:00"
+            else:
+                end_time_str = f"{hour:02d}:{minute}"
+            
+            # Определяем текстовый статус для завершившегося интервала
+            status_text = "<span style='color: #1e7e34;'>⚪ Есть свет</span>" if is_light_old else "<span style='color: #d93025; font-weight: bold;'>🔴 Отключение</span>"
+            
+            # Добавляем красивую строчку в список
+            lines.append(f"<li><span><b>{start_time_str} - {end_time_str}</b></span> <span>{status_text}</span></li>")
+            
+            # Переключаем флаги для отслеживания следующего интервала
+            is_light_old = is_light_current
+            start_time_str = end_time_str
+            
+    return "".join(lines)
 
 if __name__ == "__main__":
     parse_ztoe()
