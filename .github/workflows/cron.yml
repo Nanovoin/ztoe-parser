@@ -2,18 +2,20 @@ name: Hourly ZTOE Parser
 
 on:
   schedule:
-    - cron: '0 * * * *' # Запуск ровно в 00 минут каждого часа
-  workflow_dispatch: # Позволяет запускать вручную кнопкой
+    - cron: '0 * * * *' # Запуск каждый час
+  workflow_dispatch: # Кнопка ручного запуска
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: write # Дает право роботу делать коммиты
 
     steps:
     - name: Проверка репозитория
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Скачивает всю историю, чтобы избежать конфликтов дерева Git
 
     - name: Настройка Python
       uses: actions/setup-python@v5
@@ -27,17 +29,9 @@ jobs:
     - name: Запуск парсера
       run: python parser.py
 
-    - name: Сохранение изменений
-      run: |
-        git config --global user.name "GitHub Action"
-        git config --global user.email "action@github.com"
-        git add index.html
-        
-        # Фиксируем изменения, если они есть
-        git commit -m "Авто-обновление данных: $(date)" || echo "Нет изменений для коммита"
-        
-        # Магия защиты от конфликтов: стягиваем чужие правки, автоматически выбирая нашу версию index.html
-        git pull --rebase origin main
-        
-        # Отправляем со стопроцентным успехом
-        git push origin main
+    - name: Сохранение изменений через авто-коммит
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Авто-обновление данных Житомироблэнерго (Очередь 3.1)"
+        file_pattern: 'index.html' # Робот будет следить и пушить ТОЛЬКО этот файл
+        push_options: '--force' # Принудительно затрет старый index.html свежей версией
