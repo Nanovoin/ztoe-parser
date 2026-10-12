@@ -1,0 +1,36 @@
+name: Hourly ZTOE Parser
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Запуск ровно в 00 минут каждого часа
+  workflow_dispatch: # Позволяет запускать вручную кнопкой из панели GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Разрешение обновлять файлы в вашем репозитории
+
+    steps:
+    - name: Проверка репозитория
+      uses: actions/checkout@v3
+
+    - name: Настройка Python
+      uses: actions/setup-python@v4
+      with:
+        python-node-version: '3.10'
+
+    - name: Установка библиотек
+      run: |
+        pip install requests beautifulsoup4
+
+    - name: Запуск парсера
+      run: python parser.py
+
+    - name: Сохранение изменений
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        git add index.html
+        git commit -m "Авто-обновление данных: $(date)" || echo "Нет изменений для коммита"
+        git push
