@@ -3,22 +3,22 @@ name: Hourly ZTOE Parser
 on:
   schedule:
     - cron: '0 * * * *' # Запуск ровно в 00 минут каждого часа
-  workflow_dispatch: # Позволяет запускать вручную кнопкой из панели GitHub
+  workflow_dispatch: # Позволяет запускать вручную кнопкой
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Фиксируем стабильную версию Ubuntu, чтобы избежать сюрпризов при миграции на Ubuntu 26
     permissions:
-      contents: write # Разрешение обновлять файлы в вашем репозитории
+      contents: write
 
     steps:
     - name: Проверка репозитория
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # Обновлено до v4 (работает на актуальном Node.js)
 
     - name: Настройка Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5 # Обновлено до v5 (работает на актуальном Node.js)
       with:
-        python-node-version: '3.10'
+        python-version: '3.11' # Исправлен неверный параметр конфигурации
 
     - name: Установка библиотек
       run: |
@@ -34,3 +34,4 @@ jobs:
         git add index.html
         git commit -m "Авто-обновление данных: $(date)" || echo "Нет изменений для коммита"
         git push
+
