@@ -3,52 +3,47 @@ from bs4 import BeautifulSoup
 import datetime
 import re
 
-URL_PAGE = "https://ztoe.com.ua"
-# Внутренний системный URL, который отдает чистую таблицу без JS-магии
-URL_API = "https://ztoe.com.ua" 
+# Используем прямой адрес интерактивной карты, откуда можно забрать ВСЁ и сразу
+URL_MAP = "https://ztoe.com.ua"
 
 def parse_ztoe():
+    # Имитируем реальный браузер на мобильном телефоне, чтобы сайт не выдавал пустую инфу
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://ztoe.com.ua",
         "X-Requested-With": "XMLHttpRequest"
     }
     
     try:
-        # 1. Сначала берем красивый текст Укренерго с главной страницы
-        res_page = requests.get(URL_PAGE, headers=headers, timeout=20)
-        res_page.encoding = 'windows-1251'
+        # Делаем один точечный запрос методом POST, как это делает сам сайт
+        payload = {"action": "get_map"}
+        response = requests.post(URL_MAP, headers=headers, data=payload, timeout=25)
+        response.encoding = 'windows-1251'
         
-        alert_text = "Важная информация на сайте отсутствует."
-        if res_page.status_code == 200:
-            soup_page = BeautifulSoup(res_page.text, "html.parser")
-            alert_div = soup_page.find("h3")
-            if alert_div:
-                # Берем HTML, заменяем теги <br> на переносы строк, удаляем остальные теги
-                alert_html = str(alert_div)
-                alert_html = alert_html.replace("<br/>", "\n").replace("<br>", "\n")
-                alert_text = BeautifulSoup(alert_html, "html.parser").get_text()
-                
-                # Делаем красивые переносы перед "з 00:00", "з 06:00" и т.д.
-                alert_text = re.sub(r'(з \d{2}:\d{2})', r'\n\1', alert_text)
-                # Убираем фразу поиска в конце, если она слиплась
-                alert_text = alert_text.replace("Пошук черги та підчерги за адресою", "")
-
-        # 2. Теперь делаем POST-запрос к скрытому графику, чтобы получить саму сетку
-        # Передаем параметры, как это делает сам сайт при загрузке таблицы
-        payload = {"action": "get_map"} 
-        res_api = requests.post(URL_API, headers=headers, data=payload, timeout=20)
-        res_api.encoding = 'windows-1251'
-        
-        if res_api.status_code != 200:
-            print(f"Ошибка доступа к API графиков: {res_api.status_code}")
+        if response.status_code != 200:
+            print(f"Сайт временно недоступен. Статус: {response.status_code}")
             return
 
-        soup = BeautifulSoup(res_api.text, "html.parser")
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # 1. Извлекаем глобальный текст объявлений (он дублируется вверху карты в h3)
+        alert_text = "Официальный график или важные объявления на сервере отсутствуют."
+        alert_div = soup.find("h3")
+        if alert_div:
+            alert_html = str(alert_div)
+            alert_html = alert_html.replace("<br/>", "\n").replace("<br>", "\n")
+            alert_text = BeautifulSoup(alert_html, "html.parser").get_text().strip()
+            # Форматируем переносы строк для читаемости
+            alert_text = re.sub(r'(з \d{2}:\d{2})', r'\n\1', alert_text)
+            alert_text = alert_text.replace("Пошук черги та підчерги за адресою", "")
+
+        # 2. Ищем таблицу графиков
         tables = soup.find_all("table")
-        
         if not tables:
-            print("Таблица графиков во внутреннем API не найдена.")
-            return
+            print("Блокировка или пустой ответ: сайт не отдал таблицу.")
+            return # Прерываем скрипт, чтобы не перезаписывать работающий index.html пустой заглушкой
             
         target_table = tables[0]
         rows = target_table.find_all("tr")
@@ -57,7 +52,7 @@ def parse_ztoe():
         schedule_list = []
         current_date_str = ""
         
-        # Определяем, в какой колонке находится очередь 3.1
+        # Динамически ищем колонку 3.1
         for row in rows:
             cells = [c.get_text(strip=True) for c in row.find_all(["th", "td"])]
             if "3.1" in cells:
@@ -65,8 +60,7 @@ def parse_ztoe():
                 break
                 
         if target_col_idx is None:
-            # Резервный индекс, если шапка изменится
-            target_col_idx = 8 
+            target_col_idx = 8 # Позиция по умолчанию в сетке Житомироблэнерго
             
         for row in rows:
             cells = row.find_all(["td", "th"])
@@ -75,25 +69,24 @@ def parse_ztoe():
             if not cell_texts:
                 continue
                 
-            # Фиксируем дату
-            if len(cell_texts) == 1 and ("." in cell_texts[0] or "202" in cell_texts[0]):
-                current_date_str = cell_texts[0].replace("Графік погодинних відключень", "").strip()
+            # Извлекаем дату (например, 13.10.2026)
+            if len(cell_texts) == 1 and ("." in cell_texts or "202" in cell_texts):
+                current_date_str = cell_texts.replace("Графік погодинних відключень", "").strip()
                 continue
                 
-            # Проверяем, что строка — это интервал времени (например, 06:00-06:30)
-            if len(cell_texts) > target_col_idx and "-" in cell_texts[0] and cell_texts[0][0].isdigit():
+            # Проверяем строки с временными интервалами
+            if len(cell_texts) > target_col_idx and "-" in cell_texts[0]:
                 time_range = cell_texts[0]
                 status_cell = cells[target_col_idx]
                 
-                # Проверяем статус по цвету фона (классы или инлайн-стили Житомироблэнерго)
-                cell_class = status_cell.get("class", [])
+                cell_class = "".join(status_cell.get("class", []))
                 cell_style = status_cell.get("style", "").lower()
                 cell_text = status_cell.get_text(strip=True)
                 
-                # Логика определения отключения (красный цвет или символ 'I'/'І')
+                # Распознаем статус отключения по цветам или меткам Облэнерго
                 if "red" in cell_style or "red" in cell_class or "cc0000" in cell_style or cell_text in ["I", "І"]:
                     status = "<span style='color: #d93025; font-weight: bold;'>🔴 Отключение</span>"
-                elif "yellow" in cell_style or "yellow" in cell_class or "maybe" in cell_class:
+                elif "yellow" in cell_style or "yellow" in cell_class or "maybe" in cell_class or cell_text in ["II", "ІІ"]:
                     status = "<span style='color: #b06000; font-weight: bold;'>🟡 Возможная серая зона</span>"
                 else:
                     status = "<span style='color: #1e7e34;'>⚪ Есть свет</span>"
@@ -101,9 +94,13 @@ def parse_ztoe():
                 date_prefix = f"<small style='color:#666;'>{current_date_str}</small> " if current_date_str else ""
                 schedule_list.append(f"<li><span>{date_prefix}<b>{time_range}</b></span> <span>{status}</span></li>")
 
-        schedule_html = "".join(schedule_list) if schedule_list else "<li>График пуст. Похоже, ограничений для 3.1 на этот час нет.</li>"
+        if not schedule_list:
+            print("Расписание не удалось распарсить.")
+            return
 
-        # 3. Собираем итоговую страницу
+        schedule_html = "".join(schedule_list)
+
+        # 3. Генерируем финальную страницу
         now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         html_output = f"""
         <!DOCTYPE html>
@@ -126,7 +123,7 @@ def parse_ztoe():
         <body>
             <div class="card">
                 <h1>График для Очереди 3.1</h1>
-                <div class="update-time">Синхронизировано: {now}</div>
+                <div class="update-time">Синхронизировано: {now} (каждый час)</div>
                 
                 <div class="alert-box"><strong>Официально от Укренерго:</strong><br>{alert_text}</div>
                 
@@ -141,10 +138,10 @@ def parse_ztoe():
         
         with open("index.html", "w", encoding="utf-8") as f:
             f.write(html_output)
-        print("Всё исправлено! index.html успешно обновлен.")
+        print("index.html успешно обновлен с новыми маскировками запросов!")
 
     except Exception as e:
-        print(f"Критическая ошибка парсинга: {e}")
+        print(f"Ошибка парсинга: {e}")
 
 if __name__ == "__main__":
     parse_ztoe()
