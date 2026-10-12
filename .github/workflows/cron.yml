@@ -2,7 +2,7 @@ name: Hourly ZTOE Parser
 
 on:
   schedule:
-    - cron: '0 * * * *' # Запуск каждый час
+    - cron: '1,31 * * * *' # Запуск дважды в час: в 01 и 31 минуту
   workflow_dispatch: # Кнопка ручного запуска
 
 jobs:
