@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: ztoe-parser
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   parse:
